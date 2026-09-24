@@ -17,3 +17,4 @@ figures/*.gif
 
 # The virtual environment holding the pinned dependencies
 .venv/
+.venv-level-4/

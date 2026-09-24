@@ -14,12 +14,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    # Pinned to the versions the figures were made with, in August 2026.
-    # The stack has moved on since (`optika` 2.11, `named-arrays` 2.11,
-    # `regridding` 3.4, `esis` 1.1), and the cached results in
-    # ``~/.solar-research-2026/cache``, copied from the talk's, were computed
-    # with these versions, so newer releases would silently mix old cached
-    # results with new code.
+    # Pinned to what was checked out when the simulation results were
+    # computed, on 2026-08-08, read off the git reflog of each package.
+    # Several were development commits rather than releases, and the
+    # third-party packages are held to the versions of the time by
+    # `constraints.txt`. The Level-4 figures were made a few days later
+    # against a different `esis` and `sdo`, see `requirements-level-4.txt`.
     "numpy",
     "matplotlib",
     "astropy~=7.2",
@@ -27,15 +27,15 @@ dependencies = [
     "ndfilters==1.0.0",
     "colorsynth==1.0.0",
     "regridding==3.2.1",
-    "named-arrays==2.4.0",
+    "named-arrays @ git+https://github.com/sun-data/named-arrays.git@0193649ab5602619ddd9a9679f02737f30b54a6b",
     "optika==2.1.0",
-    "ctis==0.3.0",
+    "ctis @ git+https://github.com/sun-data/ctis.git@c593898170f95cfc48f1cc4ede04267ebde582d0",
     "msfc-ccd==1.0.1",
     "interface-region-imaging-spectrograph==1.0.1",
-    "solar-dynamics-observatory==1.0.1",
-    # The Level-4 product (`esis.data.Level_4`) was never released; the talk
-    # used the `wip/level4-tempest-tooling` branch of `esis`, at this commit.
-    "euv-snapshot-imaging-spectrograph @ git+https://github.com/esis-mission/esis.git@6c2e66f",
+    "solar-dynamics-observatory @ git+https://github.com/sun-data/solar-dynamics-observatory.git@b78e18571b46a5228a77ffeac9978115ad88073e",
+    # `main` with the Si IV radiance taken from the literature (#75), which
+    # was an uncommitted change in the working tree when the scene was made.
+    "euv-snapshot-imaging-spectrograph @ git+https://github.com/esis-mission/esis.git@c474b51ee3c7232f83c6c8c289ee7d78be0ffb80",
 ]
 dynamic = ["version"]
 

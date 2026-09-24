@@ -1,0 +1,27 @@
+# The environment the Level-4 figures were made in, on 2026-08-10 to 2026-08-12.
+#
+# It differs from the one in `pyproject.toml` in two packages. `esis` had moved
+# to its `wip/level4-tempest-tooling` branch, the only place `esis.data.Level_4`
+# has ever existed, and which does not have the Si IV change the simulation
+# needs. `sdo` was on the branch which added `sdo.hmi`, at a commit which was
+# never pushed and so is installed from the local clone.
+#
+# Install with
+#   python -m venv .venv-level-4
+#   .venv-level-4/Scripts/python -m pip install -r requirements-level-4.txt
+#   .venv-level-4/Scripts/python -m pip install --no-deps -e .
+-c constraints.txt
+numpy
+matplotlib
+astropy~=7.2
+joblib
+ndfilters==1.0.0
+colorsynth==1.0.0
+regridding==3.2.1
+named-arrays @ git+https://github.com/sun-data/named-arrays.git@0193649ab5602619ddd9a9679f02737f30b54a6b
+optika==2.1.0
+ctis @ git+https://github.com/sun-data/ctis.git@c593898170f95cfc48f1cc4ede04267ebde582d0
+msfc-ccd==1.0.1
+interface-region-imaging-spectrograph==1.0.1
+solar-dynamics-observatory @ git+file:///C:/Users/byrdie/Kankelborg-Group/solar-dynamics-observatory@4d0f4e57eb31b8a75582cf323a20637cd0bded43
+euv-snapshot-imaging-spectrograph @ git+https://github.com/esis-mission/esis.git@6c2e66f0687289104aec556f54f49c49b9f5dc5f
