@@ -14,3 +14,6 @@ figures/*.gif
 
 # Lock files written by PowerPoint while a presentation is open
 ~$*
+
+# The virtual environment holding the pinned dependencies
+.venv/

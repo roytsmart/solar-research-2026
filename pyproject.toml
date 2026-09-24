@@ -14,15 +14,27 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
+    # Pinned to the versions the figures were made with, in August 2026.
+    # The stack has moved on since (`optika` 2.11, `named-arrays` 2.11,
+    # `regridding` 3.4, `esis` 1.1), and the cached results in
+    # ``~/.spd2026/cache`` were computed with these versions, so newer
+    # releases would silently mix old cached results with new code.
     "numpy",
     "matplotlib",
-    "astropy",
+    "astropy~=7.2",
     "joblib",
-    "named-arrays",
-    "colorsynth",
-    "interface-region-imaging-spectrograph",
-    "euv-snapshot-imaging-spectrograph",
-    "solar-dynamics-observatory",
+    "ndfilters==1.0.0",
+    "colorsynth==1.0.0",
+    "regridding==3.2.1",
+    "named-arrays==2.4.0",
+    "optika==2.1.0",
+    "ctis==0.3.0",
+    "msfc-ccd==1.0.1",
+    "interface-region-imaging-spectrograph==1.0.1",
+    "solar-dynamics-observatory==1.0.1",
+    # The Level-4 product (`esis.data.Level_4`) was never released; the talk
+    # used the `wip/level4-tempest-tooling` branch of `esis`, at this commit.
+    "euv-snapshot-imaging-spectrograph @ git+https://github.com/esis-mission/esis.git@6c2e66f",
 ]
 dynamic = ["version"]
 
