@@ -17,8 +17,9 @@ dependencies = [
     # Pinned to the versions the figures were made with, in August 2026.
     # The stack has moved on since (`optika` 2.11, `named-arrays` 2.11,
     # `regridding` 3.4, `esis` 1.1), and the cached results in
-    # ``~/.spd2026/cache`` were computed with these versions, so newer
-    # releases would silently mix old cached results with new code.
+    # ``~/.solar-research-2026/cache``, copied from the talk's, were computed
+    # with these versions, so newer releases would silently mix old cached
+    # results with new code.
     "numpy",
     "matplotlib",
     "astropy~=7.2",
