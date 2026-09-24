@@ -3,8 +3,11 @@
 # It differs from the one in `pyproject.toml` in two packages. `esis` had moved
 # to its `wip/level4-tempest-tooling` branch, the only place `esis.data.Level_4`
 # has ever existed, and which does not have the Si IV change the simulation
-# needs. `sdo` was on the branch which added `sdo.hmi`, at a commit which was
-# never pushed and so is installed from the local clone.
+# needs. `sdo` was on the branch which added `sdo.hmi`, three commits in. That
+# branch was squash-merged as sun-data/solar-dynamics-observatory#20 and then
+# deleted, so the commit is on no branch, but GitHub still serves it as an
+# ancestor of the pull request's head. The merged `sdo` is not a substitute:
+# it counts `CRPIX` from zero and changes what `limit` means.
 #
 # Install with
 #   python -m venv .venv-level-4
@@ -23,5 +26,5 @@ optika==2.1.0
 ctis @ git+https://github.com/sun-data/ctis.git@c593898170f95cfc48f1cc4ede04267ebde582d0
 msfc-ccd==1.0.1
 interface-region-imaging-spectrograph==1.0.1
-solar-dynamics-observatory @ git+file:///C:/Users/byrdie/Kankelborg-Group/solar-dynamics-observatory@4d0f4e57eb31b8a75582cf323a20637cd0bded43
+solar-dynamics-observatory @ git+https://github.com/sun-data/solar-dynamics-observatory.git@4d0f4e57eb31b8a75582cf323a20637cd0bded43
 euv-snapshot-imaging-spectrograph @ git+https://github.com/esis-mission/esis.git@6c2e66f0687289104aec556f54f49c49b9f5dc5f

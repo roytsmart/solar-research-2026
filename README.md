@@ -45,8 +45,10 @@ python -m venv .venv-level-4
 
 The Level-4 product, `esis.data.Level_4`, was never released, and only exists
 on the `wip/level4-tempest-tooling` branch of `esis`. The `sdo` those figures
-were made with was a commit on the branch which added `sdo.hmi`, which was
-never pushed, so it is installed from the local clone. The Level-4 FITS cubes
+were made with was a commit partway along the branch which added `sdo.hmi`.
+The branch was squash-merged as sun-data/solar-dynamics-observatory#20 and
+deleted, and GitHub still serves the commit because the pull request's head
+descends from it. The Level-4 FITS cubes
 themselves (7.5 GB per line) are read from `~/.spd2026/data`, falling back to
 the published copy on the `Z:` share, which is about an hour slower. They are
 only ever read, never written, so this repository and the talk share them.
