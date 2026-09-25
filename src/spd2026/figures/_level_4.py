@@ -88,6 +88,16 @@ center_event_default = na.Cartesian2dVectorArray(
     y=position_event_e.y + offset_event_default,
 )
 
+#: Where the second event is, near the south of the field: a compact
+#: brightening with blue and red Doppler shifts side by side, found by eye in
+#: the O V cube for the group-meeting version of the talk. It lasts from
+#: about 18:07 to 18:10 and hardly moves while it does, so unlike event E the
+#: close-up figures are centered on it, with the same half width.
+position_event_south = na.Cartesian2dVectorArray(
+    x=47 * u.arcsec,
+    y=-299 * u.arcsec,
+)
+
 
 def _open(path_data: None | pathlib.Path) -> "esis.data.Level_4":
     """Read the Level-4 product, preferring a local copy to the share."""

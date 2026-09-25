@@ -23,6 +23,7 @@ import sys
 import time
 import traceback
 
+import astropy.units as u
 import joblib
 
 # The `esis` of the simulation environment always caches in `~/.esis/cache`,
@@ -56,7 +57,14 @@ def _get_patiently(*args, **kwargs):
 requests.get = _get_patiently
 
 import spd2026  # noqa: E402
-from spd2026.figures._level_4 import center_event_default  # noqa: E402
+from spd2026.figures._level_4 import (  # noqa: E402
+    center_event_default,
+    position_event_south,
+)
+
+# The figures of the second event are given names of their own, since the
+# functions would otherwise write them over the figures of event E.
+_south = spd2026.figures.default_path
 
 figures = {
     "simulation": [
@@ -87,6 +95,32 @@ figures = {
         ),
         ("level_4_lines", {}, ["level-4-lines.mp4"]),
         ("level_4_event", {}, ["level-4-event.mp4"]),
+        (
+            "level_4",
+            {
+                "center_box": position_event_south,
+                "path": _south / "level-4-o-v-box-south.mp4",
+            },
+            ["level-4-o-v-box-south.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center": position_event_south,
+                "center_box": None,
+                "path": _south / "level-4-o-v-event-south.mp4",
+            },
+            ["level-4-o-v-event-south.mp4"],
+        ),
+        (
+            "level_4_event",
+            {
+                "center": position_event_south,
+                "velocity_limit": 40 * u.km / u.s,
+                "path": _south / "level-4-event-south.mp4",
+            },
+            ["level-4-event-south.mp4"],
+        ),
         ("level_4_event_history", {}, ["level-4-event-history.svg"]),
         ("level_4_event_history", {"animated": True}, ["level-4-event-history.mp4"]),
         (
