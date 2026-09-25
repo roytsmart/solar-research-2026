@@ -61,6 +61,7 @@ from spd2026.figures._level_4 import center_event_default  # noqa: E402
 figures = {
     "simulation": [
         ("iris_ee", {}, ["iris-ee-1.svg", "iris-ee-2.svg", "iris-ee-3.svg"]),
+        ("iris_ee_gallery", {}, ["iris-ee-gallery.svg"]),
         ("blink", {}, ["blink.mp4"]),
         ("blink_channels", {}, ["blink-channels.mp4"]),
         ("mart_scene", {}, ["mart-scene.mp4"]),
