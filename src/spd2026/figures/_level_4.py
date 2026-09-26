@@ -1731,6 +1731,7 @@ def level_4_event_history(
     animated: bool = False,
     curves: bool = True,
     marks: bool = True,
+    profiles: bool = False,
     cmap: str = "gray",
     cmap_velocity: str = "RdBu_r",
     figsize: tuple[float, float] = figsize_default,
@@ -1849,6 +1850,21 @@ def level_4_event_history(
         other on a slide without the images appearing to move.
     marks
         Whether to mark the two followed places on the panels.
+    profiles
+        Whether to show the profile of the line at each followed place.
+
+        A column is added between the curves and the images, holding the
+        profile at the place of the largest blueshift above the profile at
+        the place of the largest redshift, each beside the median profile of
+        the whole field at the same moment. Each is averaged over the three
+        by three cells around its place, since a single cell is noisy, and
+        drawn as a fraction of its own peak: on one scale for the whole
+        flight the faint frames and the field are flat against the bottom,
+        and it is the shape of a profile, its wings, that the panel is for.
+        How bright each place is, the intensity curves already say. The
+        median shift the curves report
+        says nothing about wings, and wings far out on both sides of a line
+        are what an explosive event is recognized by.
     cmap
         The colormap of the intensity panel.
     cmap_velocity
@@ -1947,16 +1963,18 @@ def level_4_event_history(
         stem = "level-4-event-history"
         if not curves:
             stem = f"{stem}-images"
+        if profiles:
+            stem = f"{stem}-profiles"
         path = default_path / f"{stem}{suffix}"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, axs = plt.subplots(
         nrows=2,
-        ncols=2,
+        ncols=3 if profiles else 2,
         figsize=figsize,
         constrained_layout=True,
         sharex="col",
-        width_ratios=(3.0, 1.0),
+        width_ratios=(2.0, 1.0, 1.0) if profiles else (3.0, 1.0),
     )
 
     # The title of the panel at the top right lands flush against the top of
@@ -1993,6 +2011,51 @@ def level_4_event_history(
         ("blue", "solid", "largest blueshift"),
         ("red", "dashed", "largest redshift"),
     )
+
+    if profiles:
+        # The profile at each followed place, frame by frame, and the median
+        # profile of the whole field at the same moment.
+        axes_cube = (axis_time, a.axis_y, a.axis_x, axis_wavelength)
+        index_search, _ = _crop_esis(a, center_search, radius_search)
+        radiance_search = (
+            a.outputs[a.window(index_line) | index_search]
+            .transpose(axes=axes_cube)
+            .ndarray.value
+        )[:num_time]
+        x_search, y_search = _centers(a, index_search)
+        x_search = np.asarray(x_search.value)
+        y_search = np.asarray(y_search.value)
+        profile = {}
+        for name, _, _ in extremes:
+            result = []
+            for k in range(num_time):
+                i_x = int(np.argmin(np.abs(x_search - tracked[label_line][f"x_{name}"][k])))
+                i_y = int(np.argmin(np.abs(y_search - tracked[label_line][f"y_{name}"][k])))
+                cells = radiance_search[
+                    k,
+                    max(i_y - 1, 0) : i_y + 2,
+                    max(i_x - 1, 0) : i_x + 2,
+                ]
+                spectrum = np.nanmean(cells, axis=(0, 1))
+                result.append(spectrum / np.nanmax(spectrum))
+            profile[name] = np.array(result)
+        median_field = np.nanmedian(
+            a.outputs[a.window(index_line)].transpose(axes=axes_cube).ndarray.value[
+                :num_time
+            ],
+            axis=(1, 2),
+        )
+        median_field = median_field / np.nanmax(median_field, axis=1, keepdims=True)
+        # The velocity is the edges of the cells, one set shared by every
+        # line, rather than a value per cell of each line's window.
+        velocity_edges = a.velocity[
+            {k: 0 for k in a.velocity.shape if k != axis_wavelength}
+        ]
+        edges = np.asarray(velocity_edges.ndarray.to_value(velocity_limit.unit))
+        if edges.size != radiance_search.shape[~0] + 1:
+            raise ValueError(
+                f"{edges.size} velocity edges for {radiance_search.shape[~0]} cells"
+            )
 
     # What the product counts, before any of it is turned into energy.
     unit_counted = na.unit(a.outputs) * na.unit(a.inputs.wavelength)
@@ -2058,7 +2121,7 @@ def level_4_event_history(
         for ax in axs[:, 0]
     ]
 
-    picture = axs[0, 1].imshow(
+    picture = axs[0, -1].imshow(
         image_intensity[index_time],
         origin="lower",
         extent=extent_image,
@@ -2070,9 +2133,9 @@ def level_4_event_history(
         ),
         aspect="equal",
     )
-    title = axs[0, 1].set_title(f"{label_line}, {time[index_time].isot[11:19]} UTC")
+    title = axs[0, -1].set_title(f"{label_line}, {time[index_time].isot[11:19]} UTC")
 
-    image = axs[1, 1].imshow(
+    image = axs[1, -1].imshow(
         image_velocity[index_time],
         origin="lower",
         extent=extent_image,
@@ -2083,7 +2146,7 @@ def level_4_event_history(
     )
     fig.colorbar(
         image,
-        ax=axs[1, 1],
+        ax=axs[1, -1],
         location="bottom",
         fraction=0.06,
         pad=0.02,
@@ -2091,8 +2154,8 @@ def level_4_event_history(
     )
 
     unit_position = na.unit(a.inputs.position.x)
-    axs[1, 1].set_xlabel(f"helioprojective $x$ ({unit_position:latex_inline})")
-    for ax in axs[:, 1]:
+    axs[1, -1].set_xlabel(f"helioprojective $x$ ({unit_position:latex_inline})")
+    for ax in axs[:, -1]:
         ax.set_ylabel(f"helioprojective $y$ ({unit_position:latex_inline})")
 
     # The same axes in megameters, so the size of the event can be read off
@@ -2101,12 +2164,12 @@ def level_4_event_history(
     # figures are in.
     scale = _megameters_per_arcsec(time[index_time])
     functions = (lambda v: v * scale, lambda v: v / scale)
-    for ax in axs[:, 1]:
+    for ax in axs[:, -1]:
         ax.secondary_yaxis("right", functions=functions).set_ylabel("$y$ (Mm)")
-    axs[1, 1].secondary_xaxis("top", functions=functions).set_xlabel("$x$ (Mm)")
+    axs[1, -1].secondary_xaxis("top", functions=functions).set_xlabel("$x$ (Mm)")
 
     # Said once, rather than left to whatever was drawn last.
-    for ax in axs[:, 1]:
+    for ax in axs[:, -1]:
         ax.set_xlim(extent_image[0], extent_image[1])
         ax.set_ylim(extent_image[2], extent_image[3])
 
@@ -2115,6 +2178,7 @@ def level_4_event_history(
     outline = [matplotlib.patheffects.withStroke(linewidth=3.5, foreground="white")]
 
     marker = {"blue": "o", "red": "s"}
+    marker_name = {"blue": "circle", "red": "square"}
     follower = (
         {}
         if not marks
@@ -2131,7 +2195,7 @@ def level_4_event_history(
                     linestyle="none",
                     path_effects=outline,
                 )[0]
-                for ax in axs[:, 1]
+                for ax in axs[:, -1]
             ]
             for name, _, _ in extremes
         }
@@ -2156,7 +2220,7 @@ def level_4_event_history(
     # the legend above: a handle carrying a line style and a mark at once is
     # illegible at this size, the dashes and the mark running together.
     if marks:
-        axs[0, 1].legend(
+        axs[0, -1].legend(
             handles=[
                 matplotlib.lines.Line2D(
                     [],
@@ -2177,6 +2241,37 @@ def level_4_event_history(
             handletextpad=0.4,
             borderpad=0.4,
         )
+
+    stairs_place = {}
+    stairs_field = []
+    if profiles:
+        for ax, (name, linestyle, description) in zip(axs[:, 1], extremes):
+            stairs_field.append(
+                ax.stairs(
+                    median_field[index_time],
+                    edges,
+                    color="gray",
+                    linewidth=1.2,
+                    label="median of the field",
+                )
+            )
+            stairs_place[name] = ax.stairs(
+                profile[name][index_time],
+                edges,
+                color=color_extreme[name],
+                linestyle=linestyle,
+                linewidth=1.8,
+                label=f"at the {description}",
+            )
+            ax.axvline(0, color="gray", linewidth=0.8, zorder=0)
+            # Room above the peak for the legend, which would otherwise sit
+            # on the profile.
+            ax.set_ylim(0, 1.3)
+            ax.set_ylabel("relative intensity")
+            ax.set_title(f"{label_line} at the {marker_name[name]}", fontsize="medium")
+            ax.legend(loc="upper left", fontsize="x-small", framealpha=0.85)
+        axs[1, 1].set_xlim(edges[0], edges[-1])
+        axs[1, 1].set_xlabel(f"velocity ({velocity_limit.unit:latex_inline})")
 
     # The layout is worked out once and then frozen, so that the panels do
     # not shift about from one frame to the next as the labels change width,
@@ -2207,6 +2302,10 @@ def level_4_event_history(
 
         for artist in cursor:
             artist.set_xdata([seconds[index], seconds[index]])
+        for name in stairs_place:
+            stairs_place[name].set_data(values=profile[name][index])
+        for artist in stairs_field:
+            artist.set_data(values=median_field[index])
 
         title.set_text(f"{label_line}, {time[index].isot[11:19]} UTC")
 
@@ -2215,6 +2314,8 @@ def level_4_event_history(
             image,
             *[artist for name in follower for artist in follower[name]],
             *cursor,
+            *stairs_place.values(),
+            *stairs_field,
             title,
         ]
 

@@ -125,6 +125,11 @@ figures = {
         ("level_4_event_history", {"animated": True}, ["level-4-event-history.mp4"]),
         (
             "level_4_event_history",
+            {"animated": True, "profiles": True},
+            ["level-4-event-history-profiles.mp4"],
+        ),
+        (
+            "level_4_event_history",
             {"curves": False, "marks": False},
             ["level-4-event-history-images.svg"],
         ),
