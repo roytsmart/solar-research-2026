@@ -66,6 +66,11 @@ from spd2026.figures._level_4 import (  # noqa: E402
 # functions would otherwise write them over the figures of event E.
 _south = spd2026.figures.default_path
 
+# The movies of event E shown at the group meeting put the top of their
+# brightness scale at this percentile rather than the talk's 99.5th, at which
+# the core of the event was clipped through the middle of the flight.
+_percentile_e = 99.99
+
 figures = {
     "simulation": [
         ("iris_ee", {}, ["iris-ee-1.svg", "iris-ee-2.svg", "iris-ee-3.svg"]),
@@ -94,7 +99,18 @@ figures = {
             ["level-4-o-v-velocity-event.mp4"],
         ),
         ("level_4_lines", {}, ["level-4-lines.mp4"]),
-        ("level_4_event", {}, ["level-4-event.mp4"]),
+        (
+            "level_4_event",
+            # Square root, as the other movies of event E are, since at this
+            # percentile a linear scale leaves everything but the event black.
+            {
+                "percentile": _percentile_e,
+                "gamma": 0.5,
+                "interpolate_aia": True,
+                "context_top": True,
+            },
+            ["level-4-event.mp4"],
+        ),
         (
             "level_4",
             {
@@ -117,6 +133,8 @@ figures = {
             {
                 "center": position_event_south,
                 "velocity_limit": 40 * u.km / u.s,
+                "interpolate_aia": True,
+                "context_top": True,
                 "path": _south / "level-4-event-south.mp4",
             },
             ["level-4-event-south.mp4"],
@@ -125,7 +143,7 @@ figures = {
         ("level_4_event_history", {"animated": True}, ["level-4-event-history.mp4"]),
         (
             "level_4_event_history",
-            {"animated": True, "profiles": True},
+            {"animated": True, "profiles": True, "percentile": _percentile_e},
             ["level-4-event-history-profiles.mp4"],
         ),
         (
@@ -135,11 +153,20 @@ figures = {
         ),
         (
             "level_4_event_history",
-            {"curves": False, "marks": False, "animated": True},
+            {
+                "curves": False,
+                "marks": False,
+                "animated": True,
+                "percentile": _percentile_e,
+            },
             ["level-4-event-history-images.mp4"],
         ),
         ("level_4_event_motion", {}, ["level-4-event-motion.svg"]),
-        ("level_4_event_motion", {"animated": True}, ["level-4-event-motion.mp4"]),
+        (
+            "level_4_event_motion",
+            {"animated": True, "percentile": _percentile_e},
+            ["level-4-event-motion.mp4"],
+        ),
     ],
 }
 """

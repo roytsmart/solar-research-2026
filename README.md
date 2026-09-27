@@ -99,6 +99,19 @@ each channel moves by a percent or two and the noise is different, and the
 figures made from them show a different realization of the same simulation.
 The one the talk showed is kept in the talk's cache, `~/.spd2026/cache`.
 
+Some figures have since been changed for the group meeting on purpose, so
+they no longer match the talk's. The movies of event E put the top of their
+brightness scale at the 99.99th percentile of the intensity rather than the
+99.5th, at which the core of the event was clipped through the middle of the
+flight, and the movie of every line and of AIA around event E now scales its
+intensities by the square root, as the others did already, since at that
+percentile a linear scale leaves everything but the event black. The AIA
+panels of the two movies of every line, around event E and the second event,
+interpolate the AIA images linearly in time onto each ESIS frame rather than
+taking the nearest, which stuttered as the two cadences drifted against one
+another, and put the row of AIA and HMI at the top rather than the bottom.
+The script records every such change.
+
 Regenerating takes about an hour and a half, and a lot of memory. The
 backprojection behind the two blink figures asks for 123 GB at once, and each
 Level-4 figure holds an 18 GB cube, so neither should share the machine with

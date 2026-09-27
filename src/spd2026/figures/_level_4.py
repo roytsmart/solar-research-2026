@@ -672,6 +672,7 @@ def _aia(
     tolerance: u.Quantity = 8 * u.s,
     center: None | na.Cartesian2dVectorArray = None,
     radius: u.Quantity = 60 * u.arcsec,
+    interpolate: bool = False,
 ) -> tuple[np.ndarray, list[float], u.UnitBase]:
     r"""
     An AIA image of the same field at the same moment as each ESIS frame.
@@ -702,6 +703,14 @@ def _aia(
         If :obj:`None`, the whole field ESIS saw.
     radius
         The half width of the crop when `center` is given.
+    interpolate
+        Whether to interpolate linearly in time between the AIA frames on
+        either side of each ESIS frame, rather than taking the nearest.
+
+        The nearest frame repeats itself or skips one as the offset between
+        the two cadences wanders, which is seen in a movie as a stutter.
+        The frames on either side are always within one AIA cadence, so the
+        window searched is widened to twice `tolerance` either side.
 
     Notes
     -----
@@ -726,9 +735,11 @@ def _aia(
 
         t = astropy.time.Time(time[{axis_time: i}].ndarray)
 
+        window = 2 * tolerance if interpolate else tolerance
+
         b = sdo.aia.open(
-            time_start=t - tolerance,
-            time_stop=t + tolerance,
+            time_start=t - window,
+            time_stop=t + window,
             wavelength=wavelength,
             register=True,
         )
@@ -744,7 +755,17 @@ def _aia(
         # The one AIA frame nearest this ESIS frame, of the two or three the
         # window catches.
         time_b = astropy.time.Time(np.ravel(b.inputs.time.ndarray))
-        index = int(np.argmin(np.abs((time_b - t).to_value(u.s))))
+        offset = (time_b - t).to_value(u.s)
+        index = int(np.argmin(np.abs(offset)))
+
+        # Or the frames either side of it and how far between them it falls,
+        # when there is one either side to be had.
+        weights = {index: 1.0}
+        if interpolate and (offset <= 0).any() and (offset > 0).any():
+            before = int(np.argmax(np.where(offset <= 0, offset, -np.inf)))
+            after = int(np.argmin(np.where(offset > 0, offset, np.inf)))
+            fraction = -offset[before] / (offset[after] - offset[before])
+            weights = {before: 1 - fraction, after: fraction}
 
         index_frame = {b.axis_time: index, axis_wavelength: 0}
 
@@ -766,24 +787,30 @@ def _aia(
                 vertex_y[index_y.stop].value,
             ]
 
-        outputs = b.outputs[
-            index_frame
-            | {
-                b.axis_detector_x: index_x,
-                b.axis_detector_y: index_y,
-            }
-        ]
+        image = 0
+        for index_weighted, weight in weights.items():
 
-        unit = na.unit(outputs)
+            outputs = b.outputs[
+                {b.axis_time: index_weighted, axis_wavelength: 0}
+                | {
+                    b.axis_detector_x: index_x,
+                    b.axis_detector_y: index_y,
+                }
+            ]
 
-        # Named rather than assumed, since `imshow` reads the first axis as
-        # the one running up the screen. Cast down on the way out: a count is
-        # not worth eight bytes, and thirty frames of them would be worth two
-        # gigabytes.
-        outputs = outputs.transpose(
-            axes=(b.axis_detector_y, b.axis_detector_x),
-        )
-        images.append(outputs.ndarray.value.astype(np.float32))
+            unit = na.unit(outputs)
+
+            # Named rather than assumed, since `imshow` reads the first axis
+            # as the one running up the screen. Cast down on the way out: a
+            # count is not worth eight bytes, and thirty frames of them would
+            # be worth two gigabytes.
+            outputs = outputs.transpose(
+                axes=(b.axis_detector_y, b.axis_detector_x),
+            )
+            frame = outputs.ndarray.value.astype(np.float32)
+            image = frame if weight == 1 else image + np.float32(weight) * frame
+
+        images.append(image)
 
     return np.stack(images), extent, unit
 
@@ -1261,8 +1288,11 @@ def level_4_event(
     center: None | na.Cartesian2dVectorArray = None,
     radius: u.Quantity = radius_event_default,
     wavelength_aia: u.Quantity = [304, 131, 171, 193] * u.AA,
+    interpolate_aia: bool = False,
+    context_top: bool = False,
     unit_intensity: u.UnitBase = u.erg / (u.s * u.cm**2 * u.deg**2),
     percentile: float = 99.5,
+    gamma: float = 1,
     velocity_limit: u.Quantity = 60 * u.km / u.s,
     magnetogram_limit: u.Quantity = 100 * u.G,
     cmap: str = "gray",
@@ -1312,11 +1342,26 @@ def level_4_event(
         as the rows above them are: 304 is the He II line, formed near the
         coolest of the ESIS lines, 131 sits between that and the rest, and
         171 and 193 are coronal, formed above the hottest of them.
+    interpolate_aia
+        Whether to interpolate the AIA images linearly in time onto each
+        ESIS frame, rather than taking the nearest, which stutters as the
+        twelve-second AIA cadence drifts against the ten-second ESIS one.
+        See :func:`_aia`.
+    context_top
+        Whether to put the row of AIA and HMI at the top rather than the
+        bottom, so that the context is seen first and the ESIS rows are read
+        against it.
     unit_intensity
         The unit to draw the intensities in, see :func:`_energy_photon`.
     percentile
         The percentile of each line placed at the top of its own brightness
         scale.
+    gamma
+        The power the intensities of the top row and of AIA are raised to
+        before they are turned into a brightness, as in
+        :func:`level_4_event_history`. One, the default, is linear. One half
+        is the square root, which keeps the network around an event visible
+        when the top of the scale is high enough not to clip the event.
     velocity_limit
         The Doppler velocity at each end of the middle row's colormap.
     magnetogram_limit
@@ -1419,6 +1464,7 @@ def level_4_event(
             wavelength=wavelength_aia_i,
             center=center,
             radius=radius,
+            interpolate=interpolate_aia,
         )
         images_aia.append(images_i)
         extent_aia.append(extent_i)
@@ -1457,29 +1503,40 @@ def level_4_event(
         sharey=True,
     )
 
-    # Room down the right for the color scale of the middle row, which has no
-    # empty panel of its own to go in.
+    # Room down the right for the color scale of the velocity row, which has
+    # no empty panel of its own to go in.
     fig.get_layout_engine().set(rect=(0, 0, 0.915, 1))
 
+    # Which row of the figure each kind of panel is in.
+    if context_top:
+        row_context, row_intensity, row_velocity = 0, 1, 2
+    else:
+        row_intensity, row_velocity, row_context = 0, 1, 2
+
     images_line = []
+
+    def _scale(vmax_i: float) -> dict:
+        """The brightness scale of an intensity panel, linear unless asked."""
+        if gamma == 1:
+            return dict(vmin=0, vmax=vmax_i)
+        return dict(norm=matplotlib.colors.PowerNorm(gamma=gamma, vmin=0, vmax=vmax_i))
 
     for i in range(num_line):
 
         images_line.append(
-            axs[0, i].imshow(
+            axs[row_intensity, i].imshow(
                 intensity[i][0],
                 origin="lower",
                 extent=extent,
                 cmap=cmap,
-                vmin=0,
-                vmax=vmax[i],
+                **_scale(vmax[i]),
                 aspect="equal",
             )
         )
-        axs[0, i].set_title(a.label_line[order[i]])
+        axs[row_intensity, i].set_title(a.label_line[order[i]])
 
         images_line.append(
-            axs[1, i].imshow(
+            axs[row_velocity, i].imshow(
                 shift[i][0],
                 origin="lower",
                 extent=extent,
@@ -1492,21 +1549,20 @@ def level_4_event(
     image_aia = []
     for i in range(num_aia):
         image_aia.append(
-            axs[2, i].imshow(
+            axs[row_context, i].imshow(
                 images_aia[i][0],
                 origin="lower",
                 extent=extent_aia[i],
                 cmap=cmap,
-                vmin=0,
-                vmax=vmax_aia[i],
+                **_scale(vmax_aia[i]),
                 aspect="equal",
             )
         )
-        axs[2, i].set_title(f"AIA {wavelength_aia[i].to_value(u.AA):.0f}")
+        axs[row_context, i].set_title(f"AIA {wavelength_aia[i].to_value(u.AA):.0f}")
 
     # A mesh rather than an image, since HMI is not registered and the
     # coordinates of a pixel therefore depend on both of its indices.
-    ax_hmi = axs[2, num_aia]
+    ax_hmi = axs[row_context, num_aia]
     mesh_hmi = ax_hmi.pcolormesh(
         x_hmi,
         y_hmi,
@@ -1519,7 +1575,7 @@ def level_4_event(
     ax_hmi.set_aspect("equal")
 
     # The panels of the bottom row which no instrument landed in.
-    for ax in axs[2, num_aia + 1 :]:
+    for ax in axs[row_context, num_aia + 1 :]:
         ax.set_axis_off()
 
     # Every panel shows the same piece of sky and the axes are shared, so
@@ -1533,15 +1589,18 @@ def level_4_event(
         f"LOS velocity ({unit_velocity:latex_inline})",
         "context",
     )
-    for i, label in enumerate(label_row):
-        axs[i, 0].set_ylabel(label)
+    for row, label in zip((row_intensity, row_velocity, row_context), label_row):
+        axs[row, 0].set_ylabel(label)
 
     # The lowest panel of each column, which is the middle row for the
     # columns the bottom row does not reach: `sharex` hides the tick labels
     # of every panel with another below it, and a panel with an empty one
     # below would otherwise be left with no scale at all.
     for column in range(num_line):
-        row = 2 if column <= num_aia else 1
+        if row_context == 2 and column <= num_aia:
+            row = row_context
+        else:
+            row = row_velocity
         axs[row, column].set_xlabel(
             f"helioprojective $x$ ({unit_position:latex_inline})",
         )
@@ -1560,7 +1619,7 @@ def level_4_event(
     # beside the magnetogram.
     fig.canvas.draw()
 
-    position = axs[1, -1].get_position()
+    position = axs[row_velocity, -1].get_position()
     fig.colorbar(
         matplotlib.cm.ScalarMappable(norm=norm_velocity, cmap=colormap_velocity),
         cax=fig.add_axes((position.x1 + 0.010, position.y0, 0.011, position.height)),
