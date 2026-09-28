@@ -113,6 +113,11 @@ figures = {
         ),
         ("level_4_event_gaussians", {}, ["level-4-event-gaussians.mp4"]),
         (
+            "level_4_event_contours",
+            {"wavelength_aia": 171 * u.AA},
+            ["level-4-event-contours-171.mp4"],
+        ),
+        (
             "level_4",
             {
                 "center_box": position_event_south,

@@ -13,6 +13,7 @@ from ._level_4 import (
     level_4_lines,
     level_4_event,
     level_4_event_gaussians,
+    level_4_event_contours,
     level_4_event_history,
     level_4_event_motion,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "level_4_lines",
     "level_4_event",
     "level_4_event_gaussians",
+    "level_4_event_contours",
     "level_4_event_history",
     "level_4_event_motion",
 ]

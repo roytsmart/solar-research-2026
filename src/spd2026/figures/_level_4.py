@@ -5,6 +5,7 @@ The O V scene ESIS recovered from its own flight images.
 import pathlib
 import matplotlib.animation
 import matplotlib.artist
+import matplotlib.axes
 import matplotlib.cm
 import matplotlib.lines
 import matplotlib.patches
@@ -13,6 +14,7 @@ import matplotlib.colors
 import matplotlib.ticker
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.ndimage
 import astropy.units as u
 import astropy.time
 import astropy.coordinates
@@ -34,6 +36,7 @@ __all__ = [
     "level_4_lines",
     "level_4_event",
     "level_4_event_gaussians",
+    "level_4_event_contours",
     "level_4_event_history",
     "level_4_event_motion",
 ]
@@ -942,6 +945,59 @@ def _megameters_per_arcsec(time: astropy.time.Time) -> float:
     return (distance * (1 * u.arcsec).to_value(u.rad)).to_value(u.Mm)
 
 
+def _scale_bar(
+    ax: "matplotlib.axes.Axes",
+    length: float,
+    label: str,
+    margin: float = 0.06,
+) -> None:
+    """
+    A bar of a given length in the upper left of a panel, with its label.
+
+    White and outlined in black, so that it can be read against whatever
+    the panel shows there, dark or light.
+
+    Parameters
+    ----------
+    ax
+        The panel to draw it on, whose limits have already been set.
+    length
+        The length of the bar, in the units of the horizontal axis.
+    label
+        What to write under the bar.
+    margin
+        How far in from the corner to put the left end of the bar, as a
+        fraction of the width and of the height of the panel.
+    """
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    x = x0 + margin * (x1 - x0)
+    y = y1 - margin * (y1 - y0)
+    outline = [matplotlib.patheffects.withStroke(linewidth=4, foreground="black")]
+    ax.plot(
+        [x, x + length],
+        [y, y],
+        color="white",
+        linewidth=2.5,
+        solid_capstyle="butt",
+        path_effects=outline,
+        scalex=False,
+        scaley=False,
+    )
+    ax.text(
+        x + length / 2,
+        y - 0.02 * (y1 - y0),
+        label,
+        color="white",
+        ha="center",
+        va="top",
+        fontsize="small",
+        path_effects=[
+            matplotlib.patheffects.withStroke(linewidth=3, foreground="black"),
+        ],
+    )
+
+
 def _crop(vertex: u.Quantity, minimum: u.Quantity, maximum: u.Quantity) -> slice:
     """
     The cells of a grid which cover a span.
@@ -1830,6 +1886,7 @@ def level_4_event_gaussians(
     velocity_limit_core: u.Quantity = 60 * u.km / u.s,
     velocity_limit_second: u.Quantity = 150 * u.km / u.s,
     width_limit: u.Quantity = 80 * u.km / u.s,
+    scale_bar: None | u.Quantity = 10 * u.Mm,
     cmap: str = "gray",
     cmap_velocity: str = "RdBu_r",
     cmap_width: str = "viridis",
@@ -1905,6 +1962,14 @@ def level_4_event_gaussians(
         so that a color is one width in either row. The second component of
         a fast flow is typically thirty to seventy kilometers per second
         wide, and the core twenty to thirty.
+    scale_bar
+        The length of the bar drawn in the upper left of every panel, so
+        that sizes can be read off in megameters, or :obj:`None` for none.
+
+        A bar rather than a second set of axes in megameters, which the
+        panels of :func:`level_4_event_history` have, since here there are
+        six panels, each with a color scale of its own down its right side,
+        and nowhere to put them.
     cmap
         The colormap of the intensities.
     cmap_velocity
@@ -2064,6 +2129,14 @@ def level_4_event_gaussians(
     for ax in axs[-1, :]:
         ax.set_xlabel(f"helioprojective $x$ ({unit_position:latex_inline})")
 
+    if scale_bar is not None:
+        megameters_per_arcsec = _megameters_per_arcsec(time[{axis_time: 0}].ndarray)
+        length = (scale_bar.to_value(u.Mm) / megameters_per_arcsec * u.arcsec).to_value(
+            unit_position
+        )
+        for ax in axs.flat:
+            _scale_bar(ax, length=length, label=f"{scale_bar.to_value(u.Mm):g} Mm")
+
     def _title(index_time: int) -> str:
         result = f"{label_line} fitted with two Gaussians"
         if not timestamp:
@@ -2086,6 +2159,316 @@ def level_4_event_gaussians(
         text.set_text(_title(index_time))
 
         return [*[image for image, _ in images], text]
+
+    if path.suffix == ".gif":
+        writer = matplotlib.animation.PillowWriter(fps=fps)
+    else:
+        writer = matplotlib.animation.FFMpegWriter(
+            fps=fps,
+            codec="h264",
+            extra_args=["-pix_fmt", "yuv420p", "-crf", "18"],
+        )
+
+    ani = matplotlib.animation.FuncAnimation(fig=fig, func=func, frames=num_time)
+    ani.save(filename=path, writer=writer, dpi=dpi)
+
+    plt.close(fig)
+
+    return path
+
+
+def level_4_event_contours(
+    path_data: None | pathlib.Path = None,
+    center: None | na.Cartesian2dVectorArray = None,
+    radius: u.Quantity = radius_event_default,
+    num_frames_dropped: int = 1,
+    label_line: str = "O V 630",
+    width_min: u.Quantity = width_thermal_o_v,
+    width_max: u.Quantity = 150 * u.km / u.s,
+    num_passes: int = 10,
+    wavelength_aia: u.Quantity = 193 * u.AA,
+    percentile: float = 99.99,
+    gamma: float = 0.5,
+    levels_velocity: u.Quantity = [-100, 100] * u.km / u.s,
+    levels_width: u.Quantity = [30, 50] * u.km / u.s,
+    colors_velocity: tuple[str, str] = ("dodgerblue", "red"),
+    colors_width: tuple[str, ...] = ("gold", "orangered"),
+    size_filter: int = 3,
+    scale_bar: None | u.Quantity = 10 * u.Mm,
+    cmap: str = "gray",
+    figsize: tuple[float, float] = figsize_default,
+    dpi: float = 150,
+    fps: int = 5,
+    timestamp: bool = True,
+    suffix: str = ".mp4",
+    path: None | pathlib.Path = None,
+) -> pathlib.Path:
+    r"""
+    The second Gaussian of :func:`level_4_event_gaussians` drawn as contours
+    on AIA, as a loop over the flight.
+
+    Two panels of the same AIA channel, interpolated onto each ESIS frame
+    as in :func:`level_4_event`: on the left, the contours of the Doppler
+    shift of the second Gaussian, which outline the fast flows toward us
+    and away; on the right, the contours of its width, which outline where
+    the second Gaussian is broad. What the corona above the flows is doing
+    can then be read off beneath them.
+
+    Parameters
+    ----------
+    path_data
+        The directory of Level-4 files to read.
+        If :obj:`None`, the directory the local copies are kept in.
+    center
+        The place on the sky to look at.
+        If :obj:`None`, :obj:`center_event_default`.
+    radius
+        The half width of the region shown.
+    num_frames_dropped
+        How many frames to leave off the end of the flight, see
+        :func:`level_4_event_gaussians`.
+    label_line
+        The line whose second Gaussian is drawn.
+    width_min
+        The narrowest a fitted Gaussian may be.
+    width_max
+        The broadest a fitted Gaussian may be.
+    num_passes
+        The most passes to make fitting each pair again from the pairs of
+        its neighbors, see :func:`level_4_event_gaussians`.
+    wavelength_aia
+        The AIA channel beneath the contours. By default :math:`193\,\text{\AA}`,
+        which is formed in the corona at about a million and a half kelvin,
+        far above anything ESIS saw; :math:`304\,\text{\AA}` is the He II
+        line of the chromosphere and the transition region, near the
+        temperature of the ESIS lines themselves. The channel is in the
+        name of the file.
+    percentile
+        The percentile of AIA placed at the top of its brightness scale.
+    gamma
+        The power AIA is raised to before it is turned into a brightness, as
+        in :func:`level_4_event`.
+    levels_velocity
+        The Doppler shifts to draw a contour at.
+    levels_width
+        The widths to draw a contour at, as standard deviations.
+    colors_velocity
+        The color of the contours of a blueshift and of a redshift.
+    colors_width
+        The color of each contour of the width, in the order of
+        `levels_width`.
+    size_filter
+        The number of cells across the median filter each map is smoothed
+        with before it is contoured, or one for none.
+
+        The second Gaussian goes its own way in scattered single cells,
+        and each would get a small ring of its own; a three by three median
+        removes them and leaves the jets, which are many cells across.
+    scale_bar
+        The length of the bar drawn in the upper left of both panels, or
+        :obj:`None` for none, as in :func:`level_4_event_gaussians`.
+    cmap
+        The colormap of AIA.
+    figsize
+        The width and height of the figure in inches.
+    dpi
+        The resolution of the saved animation in dots per inch.
+    fps
+        The number of frames per second in the saved animation.
+    timestamp
+        Whether to write the time of each exposure in the title.
+    suffix
+        The file type of the animation, either ``".mp4"`` or ``".gif"``.
+        Ignored if `path` is given.
+    path
+        The location to save the animation.
+        If :obj:`None`, it is saved alongside the other figures.
+
+    Notes
+    -----
+    The contours are placed by the coordinates of the Level-4 product and
+    AIA by its own, so they line up only as well as the two were
+    coaligned.
+    """
+    if path_data is None:
+        path_data = path_level_4_default.parent
+
+    if center is None:
+        center = center_event_default
+
+    a = esis.data.Level_4.from_fits(path_data)
+
+    axis_time = a.axis_time
+    unit_velocity = u.km / u.s
+    unit_position = na.unit(a.inputs.position.x)
+
+    _, second, _ = _gaussians(
+        a=a,
+        label_line=label_line,
+        center=center,
+        radius=radius,
+        width_min=width_min,
+        width_max=width_max,
+        num_passes=num_passes,
+        unit_velocity=unit_velocity,
+    )
+
+    num_time = second.shape[0] - num_frames_dropped
+    size = (1, size_filter, size_filter)
+    maps = dict(
+        velocity=scipy.ndimage.median_filter(second[:num_time, ..., 1], size=size),
+        width=scipy.ndimage.median_filter(second[:num_time, ..., 2], size=size),
+    )
+
+    index, _ = _crop_esis(a, center, radius)
+    x, y = _centers(a, index)
+    x = x.to_value(unit_position)
+    y = y.to_value(unit_position)
+
+    # A little wider than the region, since the ESIS cells on its edges
+    # reach past it by up to a cell, three quarters of an arcsecond, and
+    # AIA cut to the region itself leaves a strip of nothing down the side.
+    images_aia, extent_aia, _ = _aia(
+        a=a,
+        wavelength=wavelength_aia,
+        center=center,
+        radius=radius + 1 * u.arcsec,
+        interpolate=True,
+    )
+    images_aia = images_aia[:num_time]
+    norm_aia = matplotlib.colors.PowerNorm(
+        gamma=gamma,
+        vmin=0,
+        vmax=float(np.nanpercentile(images_aia, percentile)),
+    )
+
+    _, extent = _crop_esis(a, center, radius)
+
+    contours = dict(
+        velocity=dict(
+            levels=levels_velocity.to_value(unit_velocity),
+            colors=[
+                colors_velocity[0] if level < 0 else colors_velocity[1]
+                for level in levels_velocity.to_value(unit_velocity)
+            ],
+            labels=[
+                f"{level:+g} {unit_velocity:latex_inline}"
+                for level in levels_velocity.to_value(unit_velocity)
+            ],
+            title=f"{label_line} second component shift",
+        ),
+        width=dict(
+            levels=levels_width.to_value(unit_velocity),
+            colors=list(colors_width[: len(levels_width)]),
+            labels=[
+                f"$\\sigma$ = {level:g} {unit_velocity:latex_inline}"
+                for level in levels_width.to_value(unit_velocity)
+            ],
+            title=f"{label_line} second component width",
+        ),
+    )
+
+    time = a.inputs.time
+    name_aia = f"AIA {wavelength_aia.to_value(u.AA):.0f}"
+
+    if path is None:
+        channel = f"{wavelength_aia.to_value(u.AA):.0f}"
+        path = default_path / f"level-4-event-contours-{channel}{suffix}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axs = plt.subplots(
+        nrows=1,
+        ncols=2,
+        figsize=figsize,
+        constrained_layout=True,
+        sharex=True,
+        sharey=True,
+    )
+
+    pictures = []
+    for ax, key in zip(axs, contours):
+        pictures.append(
+            ax.imshow(
+                images_aia[0],
+                origin="lower",
+                extent=extent_aia,
+                cmap=cmap,
+                norm=norm_aia,
+                aspect="equal",
+            )
+        )
+        ax.set_title(f"{name_aia} and the {contours[key]['title']}")
+        ax.set_xlabel(f"helioprojective $x$ ({unit_position:latex_inline})")
+        ax.legend(
+            handles=[
+                matplotlib.lines.Line2D([], [], color=color, label=label)
+                for color, label in zip(
+                    contours[key]["colors"],
+                    contours[key]["labels"],
+                )
+            ],
+            loc="upper right",
+            fontsize="small",
+            framealpha=0.85,
+        )
+    axs[0].set_ylabel(f"helioprojective $y$ ({unit_position:latex_inline})")
+
+    # Clipped to the ESIS region, which the AIA crop reaches a little past.
+    axs[0].set_xlim(extent[0], extent[1])
+    axs[0].set_ylim(extent[2], extent[3])
+
+    if scale_bar is not None:
+        megameters_per_arcsec = _megameters_per_arcsec(time[{axis_time: 0}].ndarray)
+        length = (scale_bar.to_value(u.Mm) / megameters_per_arcsec * u.arcsec).to_value(
+            unit_position
+        )
+        for ax in axs:
+            _scale_bar(ax, length=length, label=f"{scale_bar.to_value(u.Mm):g} Mm")
+
+    def _draw(index_time: int) -> list[matplotlib.artist.Artist]:
+        """The contours of one frame."""
+        return [
+            ax.contour(
+                x,
+                y,
+                maps[key][index_time],
+                levels=contours[key]["levels"],
+                colors=contours[key]["colors"],
+                linewidths=1.5,
+            )
+            for ax, key in zip(axs, contours)
+        ]
+
+    lines = _draw(0)
+
+    def _title(index_time: int) -> str:
+        result = f"{name_aia} with the {label_line} flows"
+        if not timestamp:
+            return result
+        t = time[{axis_time: index_time}].ndarray
+        return f"{result}, {t.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+
+    text = fig.suptitle(_title(0))
+
+    # Held still, so that the panels do not shift about from one frame to
+    # the next.
+    fig.canvas.draw()
+    fig.set_layout_engine("none")
+
+    def func(index_time: int) -> list[matplotlib.artist.Artist]:
+
+        for picture in pictures:
+            picture.set_data(images_aia[index_time])
+
+        # A contour cannot be given new data, so each frame's are drawn
+        # afresh in place of the last frame's.
+        for line in lines:
+            line.remove()
+        lines[:] = _draw(index_time)
+
+        text.set_text(_title(index_time))
+
+        return [*pictures, *lines, text]
 
     if path.suffix == ".gif":
         writer = matplotlib.animation.PillowWriter(fps=fps)
