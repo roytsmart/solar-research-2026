@@ -2517,6 +2517,8 @@ def _track(
     center: na.Cartesian2dVectorArray,
     radius: u.Quantity,
     percentile_bright: float,
+    wings: bool = False,
+    speed_wing: u.Quantity = 60 * u.km / u.s,
 ) -> dict[str, np.ndarray]:
     r"""
     The fastest plasma of a line in every frame, both ways, and where it is.
@@ -2546,6 +2548,21 @@ def _track(
     percentile_bright
         The percentile of the intensity below which a place is too faint for
         its Doppler shift to be believed.
+    wings
+        Whether to follow the place where each wing of the line is brightest
+        instead: the most light beyond `speed_wing` toward us, and the most
+        beyond it away from us. The Doppler shift reported is still the
+        median of the profile there, and `percentile_bright` is not used.
+
+        The largest shift wanders about an event a few cells across, from
+        one noisy cell at its edge to another, since the median of every
+        profile there is small, its jets being faint beside its core and
+        pulling it in both directions at once. The brightest wing stays with
+        the jet.
+    speed_wing
+        Where each wing starts, if `wings`: far enough from rest to be out
+        of the core of the line, which is twenty to thirty kilometers per
+        second wide.
     """
     index_line = list(a.label_line).index(label_line)
     index, _ = _crop_esis(a, center, radius)
@@ -2565,17 +2582,37 @@ def _track(
 
     x, y = _centers(a, index)
 
+    if wings:
+        # The light in each wing, beyond `speed_wing` from rest, from the
+        # middles of the cells of the shared velocity grid.
+        edges = a.velocity[{k: 0 for k in a.velocity.shape if k != axis}]
+        edges = np.asarray(edges.ndarray.to_value(u.km / u.s))
+        middles = (edges[1:] + edges[:-1]) / 2
+        cells = radiance.transpose(axes=(*axes, axis)).ndarray.value
+        speed = speed_wing.to_value(u.km / u.s)
+        wing = dict(
+            blue=cells[..., middles < -speed].sum(~0),
+            red=cells[..., middles > speed].sum(~0),
+        )
+
     keys = ("x", "y", "v", "i")
     result = {f"{k}_{n}": [] for k in keys for n in ("blue", "red")}
 
     for k in range(velocity.shape[0]):
-        bright = intensity[k] > np.nanpercentile(intensity[k], percentile_bright)
-        v = np.where(bright, velocity[k], np.nan)
+        if wings:
+            places = [
+                (name, np.unravel_index(np.nanargmax(w[k]), w[k].shape))
+                for name, w in wing.items()
+            ]
+        else:
+            bright = intensity[k] > np.nanpercentile(intensity[k], percentile_bright)
+            v = np.where(bright, velocity[k], np.nan)
+            places = [
+                ("blue", np.unravel_index(np.nanargmin(v), v.shape)),
+                ("red", np.unravel_index(np.nanargmax(v), v.shape)),
+            ]
 
-        for name, place in (
-            ("blue", np.unravel_index(np.nanargmin(v), v.shape)),
-            ("red", np.unravel_index(np.nanargmax(v), v.shape)),
-        ):
+        for name, place in places:
             result[f"x_{name}"].append(x[place[1]].value)
             result[f"y_{name}"].append(y[place[0]].value)
             result[f"v_{name}"].append(velocity[k][place])
@@ -2595,6 +2632,7 @@ def level_4_event_history(
     radius_image: u.Quantity = radius_event_default,
     offset_image: u.Quantity = offset_event_default,
     percentile_bright: float = 75,
+    wings: bool = False,
     percentile: float = 99.5,
     gamma: float = 0.5,
     velocity_limit: u.Quantity = 40 * u.km / u.s,
@@ -2680,6 +2718,14 @@ def level_4_event_history(
     percentile_bright
         The percentile of the intensity below which a place is too faint for
         its Doppler shift to be believed.
+    wings
+        Whether to follow the place where each wing of the line is brightest,
+        beyond sixty kilometers per second toward us and away, rather than the
+        place where the line is most shifted each way. See :func:`_track`.
+
+        The better choice for an event only a few cells across, whose largest
+        shift wanders about it from frame to frame, since the median of
+        every profile there is small and is pulled both ways at once.
     percentile
         The percentile of the intensity placed at the top of the brightness
         scale of the panel on the right.
@@ -2806,6 +2852,7 @@ def level_4_event_history(
                 center=center_search,
                 radius=radius_search,
                 percentile_bright=percentile_bright,
+                wings=wings,
             ).items()
         }
         for label in a.label_line
@@ -2837,6 +2884,8 @@ def level_4_event_history(
             stem = f"{stem}-images"
         if profiles:
             stem = f"{stem}-profiles"
+        if wings:
+            stem = f"{stem}-wings"
         path = default_path / f"{stem}{suffix}"
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2879,10 +2928,16 @@ def level_4_event_history(
     else:
         reference = [1] * a.num_line
 
-    extremes = (
-        ("blue", "solid", "largest blueshift"),
-        ("red", "dashed", "largest redshift"),
-    )
+    if wings:
+        extremes = (
+            ("blue", "solid", "brightest blue wing"),
+            ("red", "dashed", "brightest red wing"),
+        )
+    else:
+        extremes = (
+            ("blue", "solid", "largest blueshift"),
+            ("red", "dashed", "largest redshift"),
+        )
 
     if profiles:
         # The profile at each followed place, frame by frame, and the median
@@ -2967,10 +3022,15 @@ def level_4_event_history(
     # by then the extreme is finding noise and a scale wide enough to hold it
     # leaves everything before it flat.
     if num_frames_unscaled:
+        # Only from the line drawn, when following the brightest wings: the
+        # other lines' brightest wings are, for the fainter of them, wherever
+        # their noise is highest, and a scale wide enough for the medians
+        # there leaves the line drawn flat.
+        labels = [label_line] if wings else a.label_line
         scaled = np.concatenate(
             [
                 tracked[label][f"v_{name}"][:-num_frames_unscaled]
-                for label in a.label_line
+                for label in labels
                 for name, _, _ in extremes
             ]
         )
@@ -2978,7 +3038,8 @@ def level_4_event_history(
         axs[1, 0].set_ylim(scaled.min() - margin, scaled.max() + margin)
 
     axs[1, 0].axhline(0, color="gray", linewidth=0.8, zorder=0)
-    axs[1, 0].set_ylabel(f"extreme LOS velocity ({velocity_limit.unit:latex_inline})")
+    label_velocity = "median LOS velocity" if wings else "extreme LOS velocity"
+    axs[1, 0].set_ylabel(f"{label_velocity} ({velocity_limit.unit:latex_inline})")
     axs[1, 0].set_xlabel(f"seconds after {time[0].isot[11:19]} UTC")
 
     # When animated, the moment the panels on the right are showing.

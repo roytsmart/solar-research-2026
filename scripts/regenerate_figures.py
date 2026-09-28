@@ -62,9 +62,9 @@ from spd2026.figures._level_4 import (  # noqa: E402
     position_event_south,
 )
 
-# The figures of the second event are given names of their own, since the
+# The figures of the other events are given names of their own, since the
 # functions would otherwise write them over the figures of event E.
-_south = spd2026.figures.default_path
+_path = spd2026.figures.default_path
 
 # The movies of event E shown at the group meeting put the top of their
 # brightness scale at this percentile rather than the talk's 99.5th, at which
@@ -121,7 +121,7 @@ figures = {
             "level_4",
             {
                 "center_box": position_event_south,
-                "path": _south / "level-4-o-v-box-south.mp4",
+                "path": _path / "level-4-o-v-box-south.mp4",
             },
             ["level-4-o-v-box-south.mp4"],
         ),
@@ -130,7 +130,7 @@ figures = {
             {
                 "center": position_event_south,
                 "center_box": None,
-                "path": _south / "level-4-o-v-event-south.mp4",
+                "path": _path / "level-4-o-v-event-south.mp4",
             },
             ["level-4-o-v-event-south.mp4"],
         ),
@@ -141,9 +141,35 @@ figures = {
                 "velocity_limit": 40 * u.km / u.s,
                 "interpolate_aia": True,
                 "context_top": True,
-                "path": _south / "level-4-event-south.mp4",
+                "path": _path / "level-4-event-south.mp4",
             },
             ["level-4-event-south.mp4"],
+        ),
+        (
+            "level_4_event_history",
+            {
+                "animated": True,
+                "profiles": True,
+                "percentile": _percentile_e,
+                "center": position_event_south,
+                "offset_image": 0 * u.arcsec,
+                # The brightest wings rather than the largest shifts, which
+                # wander about an event only a few cells across, and only
+                # near the event, since before and after it the brightest
+                # wing is wherever the noise happens to be highest.
+                "wings": True,
+                "radius": 5 * u.arcsec,
+                "path": _path / "level-4-event-history-profiles-south.mp4",
+            },
+            ["level-4-event-history-profiles-south.mp4"],
+        ),
+        (
+            "level_4_event_gaussians",
+            {
+                "center": position_event_south,
+                "path": _path / "level-4-event-gaussians-south.mp4",
+            },
+            ["level-4-event-gaussians-south.mp4"],
         ),
         ("level_4_event_history", {}, ["level-4-event-history.svg"]),
         ("level_4_event_history", {"animated": True}, ["level-4-event-history.mp4"]),
