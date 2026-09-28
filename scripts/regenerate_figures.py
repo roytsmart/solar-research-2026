@@ -111,6 +111,7 @@ figures = {
             },
             ["level-4-event.mp4"],
         ),
+        ("level_4_event_gaussians", {}, ["level-4-event-gaussians.mp4"]),
         (
             "level_4",
             {
@@ -166,6 +167,16 @@ figures = {
             "level_4_event_motion",
             {"animated": True, "percentile": _percentile_e},
             ["level-4-event-motion.mp4"],
+        ),
+        (
+            "level_4_event_motion",
+            {
+                "animated": True,
+                "percentile": _percentile_e,
+                "second": True,
+                "velocity_limit": 150 * u.km / u.s,
+            },
+            ["level-4-event-motion-second.mp4"],
         ),
     ],
 }

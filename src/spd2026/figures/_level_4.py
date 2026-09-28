@@ -21,7 +21,8 @@ import astropy.visualization
 import named_arrays as na
 import sdo
 import esis
-from .._temperature import order_temperature
+from .._temperature import temperature_line, order_temperature
+from .._gaussians import fit_gaussians, seed_gaussians
 from ._color import velocity_color_default, percentile_default
 from ._layout import figsize_default, bottom_default, height_default
 from ._path import default_path
@@ -32,6 +33,7 @@ __all__ = [
     "level_4_velocity",
     "level_4_lines",
     "level_4_event",
+    "level_4_event_gaussians",
     "level_4_event_history",
     "level_4_event_motion",
 ]
@@ -1674,6 +1676,434 @@ def level_4_event(
     return path
 
 
+def _order_gaussians(double: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    The two Gaussians of a fit, put in the order core and then second.
+
+    The core is the one nearer to rest, since the core of the line is the
+    plasma which is not taking part in the event and the event is what
+    moves. That only means something when the two are apart, though: two
+    Gaussians overlapping near rest are one line split in two, and which of
+    them is nearer to rest changes from one place to the next with the
+    noise. Where the centers are closer than the sum of the widths, the core
+    is instead the brighter one.
+
+    Parameters
+    ----------
+    double
+        The pair of Gaussians from :func:`spd2026._gaussians.fit_gaussians`,
+        with their eight numbers along the last axis.
+
+    Returns
+    -------
+    core
+        The area, center and width of the core, along the last axis.
+    second
+        The same of the other one.
+    """
+    first, other = double[..., 0:3], double[..., 3:6]
+    area_1, center_1, width_1 = np.moveaxis(first, ~0, 0)
+    area_2, center_2, width_2 = np.moveaxis(other, ~0, 0)
+
+    apart = np.abs(center_1 - center_2) > width_1 + width_2
+    first_is_core = np.where(
+        apart,
+        np.abs(center_1) <= np.abs(center_2),
+        area_1 >= area_2,
+    )[..., np.newaxis]
+
+    return (
+        np.where(first_is_core, first, other),
+        np.where(first_is_core, other, first),
+    )
+
+
+def _gaussians(
+    a: "esis.data.Level_4",
+    label_line: str,
+    center: na.Cartesian2dVectorArray,
+    radius: u.Quantity,
+    width_min: u.Quantity,
+    width_max: u.Quantity,
+    num_passes: int,
+    unit_velocity: u.UnitBase = u.km / u.s,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Two Gaussians fitted to every profile of one line in a region, core first.
+
+    Parameters
+    ----------
+    a
+        The Level-4 product to fit.
+    label_line
+        The line to fit.
+    center
+        The middle of the region to fit.
+    radius
+        The half width of the region to fit.
+    width_min
+        The narrowest a Gaussian may be, as a standard deviation.
+    width_max
+        The broadest a Gaussian may be, as a standard deviation.
+    num_passes
+        The most passes to make fitting each pair again from the pairs of
+        its neighbors, see :func:`spd2026._gaussians.seed_gaussians`. Zero
+        leaves each fit as it was made on its own.
+    unit_velocity
+        The unit the centers, the widths and the edges are returned in.
+
+    Returns
+    -------
+    core
+        The area, center and width of the core, see :func:`_order_gaussians`,
+        with time, :math:`y` and :math:`x` as the first three axes, as the
+        whole flight.
+    second
+        The same of the second component.
+    edges
+        The edges of the cells of the spectrum the fits were made on.
+    """
+    axis_wavelength = a.axis_wavelength
+
+    index_line = list(a.label_line).index(label_line)
+    index, _ = _crop_esis(a, center, radius)
+
+    # Contiguous, since the cache recognizes an array by its layout in
+    # memory as well as by its values, and a transposed view would be a new
+    # array to it every time.
+    radiance = np.ascontiguousarray(
+        a.outputs[a.window(index_line) | index]
+        .transpose(axes=(a.axis_time, a.axis_y, a.axis_x, axis_wavelength))
+        .ndarray.value
+    )
+
+    # The edges of the cells, one set shared by every line, see
+    # :func:`level_4_event_history`.
+    velocity_edges = a.velocity[
+        {k: 0 for k in a.velocity.shape if k != axis_wavelength}
+    ]
+    edges = np.asarray(velocity_edges.ndarray.to_value(unit_velocity))
+
+    kwargs = dict(
+        radiance=radiance,
+        edges=edges,
+        width_min=float(width_min.to_value(unit_velocity)),
+        width_max=float(width_max.to_value(unit_velocity)),
+    )
+    if num_passes:
+        _, double = seed_gaussians(**kwargs, num_passes=num_passes)
+    else:
+        _, double = fit_gaussians(**kwargs)
+
+    core, second = _order_gaussians(double)
+
+    return core, second, edges
+
+
+width_thermal_o_v = np.sqrt(
+    astropy.constants.k_B * temperature_line["O V 630"] / (15.999 * u.u)
+).to(u.km / u.s)
+"""
+The narrowest a Gaussian fitted to O V is allowed to be: the thermal width of
+the line, the spread of the speeds of oxygen ions along the line of sight at
+the temperature the line is formed at, as a standard deviation.
+
+Nothing emitting O V can be narrower, and without a floor the second Gaussian
+of a fit is free to shrink onto a single cell of the spectrum and fit the
+noise of the inversion there instead of any plasma: a quarter of them did, in
+a first try with a floor of half a cell.
+"""
+
+
+def level_4_event_gaussians(
+    path_data: None | pathlib.Path = None,
+    center: None | na.Cartesian2dVectorArray = None,
+    radius: u.Quantity = radius_event_default,
+    num_frames_dropped: int = 1,
+    label_line: str = "O V 630",
+    width_min: u.Quantity = width_thermal_o_v,
+    width_max: u.Quantity = 150 * u.km / u.s,
+    num_passes: int = 10,
+    unit_intensity: u.UnitBase = u.erg / (u.s * u.cm**2 * u.deg**2),
+    percentile: float = 99.99,
+    gamma: float = 0.5,
+    velocity_limit_core: u.Quantity = 60 * u.km / u.s,
+    velocity_limit_second: u.Quantity = 150 * u.km / u.s,
+    width_limit: u.Quantity = 80 * u.km / u.s,
+    cmap: str = "gray",
+    cmap_velocity: str = "RdBu_r",
+    cmap_width: str = "viridis",
+    figsize: tuple[float, float] = figsize_default,
+    dpi: float = 150,
+    fps: int = 5,
+    timestamp: bool = True,
+    suffix: str = ".mp4",
+    path: None | pathlib.Path = None,
+) -> pathlib.Path:
+    r"""
+    Two Gaussians fitted to every profile of one line around an event, as a
+    loop over the flight.
+
+    Each profile is fitted with a pair of Gaussians on a flat background, see
+    :func:`spd2026._gaussians.fit_gaussians`, and the six numbers the pair
+    comes to are drawn as six maps: the intensity, Doppler shift and width
+    of the core of the line in the top row, and the same of the second
+    Gaussian beneath them. The core is the Gaussian nearer to rest, which is
+    what the fast flows of an explosive event stand out from, see
+    :func:`_order_gaussians`.
+
+    The intensities share one brightness scale, so the two rows can be read
+    against each other and the second Gaussian's share of the line seen
+    directly. The Doppler shifts do not share a scale: the core moves by
+    tens of kilometers per second and the second Gaussian by more than a
+    hundred, and on one scale the core would be white throughout.
+
+    Parameters
+    ----------
+    path_data
+        The directory of Level-4 files to read.
+        If :obj:`None`, the directory the local copies are kept in.
+    center
+        The place on the sky to look at.
+        If :obj:`None`, :obj:`center_event_default`, the region the other
+        close-ups of event E show.
+    radius
+        The half width of the region shown.
+    num_frames_dropped
+        How many frames to leave off the end of the flight, see
+        :func:`level_4_event_history`. In the last frame the fits find
+        components everywhere, at every speed the window holds, in a line
+        which is only a tenth as bright as it was at the top of the flight.
+    label_line
+        The line to fit.
+    width_min
+        The narrowest a Gaussian may be, as a standard deviation. The
+        default is right for O V only, see :obj:`width_thermal_o_v`.
+    width_max
+        The broadest a Gaussian may be, as a standard deviation.
+    num_passes
+        The most passes to make fitting each pair again from the pairs of
+        its neighbors, see :func:`spd2026._gaussians.seed_gaussians`, which
+        is what keeps the maps from being speckled with places the fit went
+        a different way than the places around them. Zero leaves each fit
+        as it was made on its own.
+    unit_intensity
+        The unit to draw the intensities in, see :func:`_energy_photon`.
+    percentile
+        The percentile of the total intensity of the two Gaussians placed at
+        the top of the brightness scale.
+    gamma
+        The power the intensities are raised to before they are turned into
+        a brightness, as in :func:`level_4_event_history`.
+    velocity_limit_core
+        The Doppler velocity at each end of the colormap of the core.
+    velocity_limit_second
+        The Doppler velocity at each end of the colormap of the second
+        Gaussian.
+    width_limit
+        The width at the top of the colormap of both widths, which share it
+        so that a color is one width in either row. The second component of
+        a fast flow is typically thirty to seventy kilometers per second
+        wide, and the core twenty to thirty.
+    cmap
+        The colormap of the intensities.
+    cmap_velocity
+        The colormap of the Doppler shifts.
+    cmap_width
+        The colormap of the widths.
+    figsize
+        The width and height of the figure in inches.
+    dpi
+        The resolution of the saved animation in dots per inch.
+    fps
+        The number of frames per second in the saved animation.
+    timestamp
+        Whether to write the time of each exposure above the panels.
+    suffix
+        The file type of the animation, either ``".mp4"`` or ``".gif"``.
+        Ignored if `path` is given.
+    path
+        The location to save the animation.
+        If :obj:`None`, it is saved alongside the other figures.
+
+    Notes
+    -----
+    The widths are what the fit found, with nothing taken out for the
+    instrument or the inversion: they are upper limits on the width of the
+    plasma, not measurements of it.
+
+    The spectral window of each line stops at :math:`\pm 210` km/s, and a
+    Gaussian centered far out in a wing has part of itself beyond the edge.
+    The fit accounts for the part it cannot see, since it compares only the
+    cells there are, but it has less to go on there, and a second Gaussian
+    past about 150 km/s is poorly constrained.
+    """
+    if path_data is None:
+        path_data = path_level_4_default.parent
+
+    if center is None:
+        center = center_event_default
+
+    a = esis.data.Level_4.from_fits(path_data)
+
+    axis_time = a.axis_time
+
+    index_line = list(a.label_line).index(label_line)
+    _, extent = _crop_esis(a, center, radius)
+
+    unit_position = na.unit(a.inputs.position.x)
+    unit_velocity = velocity_limit_core.unit
+
+    core, second, _ = _gaussians(
+        a=a,
+        label_line=label_line,
+        center=center,
+        radius=radius,
+        width_min=width_min,
+        width_max=width_max,
+        num_passes=num_passes,
+        unit_velocity=unit_velocity,
+    )
+
+    # Fitted, so that the cache holds the whole flight, but not shown.
+    num_time = core.shape[0] - num_frames_dropped
+    core = core[:num_time]
+    second = second[:num_time]
+
+    # The areas are sums of cells, which is what the product's intensity is
+    # before the width of a cell and the energy of a photon are put in.
+    factor = (
+        na.unit(a.outputs)
+        * _width(a, index_line).ndarray
+        * _energy_photon(a, index_line)
+    ).to_value(unit_intensity)
+
+    components = [
+        dict(
+            name="core",
+            intensity=core[..., 0] * factor,
+            velocity=core[..., 1],
+            width=core[..., 2],
+            velocity_limit=velocity_limit_core.to_value(unit_velocity),
+        ),
+        dict(
+            name="second component",
+            intensity=second[..., 0] * factor,
+            velocity=second[..., 1],
+            width=second[..., 2],
+            velocity_limit=velocity_limit_second.to_value(unit_velocity),
+        ),
+    ]
+
+    vmax = float(
+        np.nanpercentile(
+            components[0]["intensity"] + components[1]["intensity"],
+            percentile,
+        )
+    )
+    norm_intensity = matplotlib.colors.PowerNorm(gamma=gamma, vmin=0, vmax=vmax)
+    norm_width = matplotlib.colors.Normalize(
+        vmin=0,
+        vmax=width_limit.to_value(unit_velocity),
+    )
+
+    time = a.inputs.time
+
+    if path is None:
+        path = default_path / f"level-4-event-gaussians{suffix}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axs = plt.subplots(
+        nrows=2,
+        ncols=3,
+        figsize=figsize,
+        constrained_layout=True,
+        sharex=True,
+        sharey=True,
+    )
+
+    images = []
+    for row, component in enumerate(components):
+
+        norm_velocity = matplotlib.colors.Normalize(
+            vmin=-component["velocity_limit"],
+            vmax=+component["velocity_limit"],
+        )
+
+        panels = (
+            ("intensity", "intensity", cmap, norm_intensity, unit_intensity),
+            ("velocity", "LOS velocity", cmap_velocity, norm_velocity, unit_velocity),
+            ("width", "width $\\sigma$", cmap_width, norm_width, unit_velocity),
+        )
+
+        for column, (key, title, cmap_panel, norm, unit) in enumerate(panels):
+            ax = axs[row, column]
+            image = ax.imshow(
+                component[key][0],
+                origin="lower",
+                extent=extent,
+                cmap=cmap_panel,
+                norm=norm,
+                aspect="equal",
+            )
+            images.append((image, component[key]))
+            ax.set_title(f"{component['name']} {title}")
+            fig.colorbar(
+                image,
+                ax=ax,
+                label=f"{unit:latex_inline}",
+                fraction=0.05,
+                pad=0.03,
+            )
+
+    axs[0, 0].set_xlim(extent[0], extent[1])
+    axs[0, 0].set_ylim(extent[2], extent[3])
+
+    for ax in axs[:, 0]:
+        ax.set_ylabel(f"helioprojective $y$ ({unit_position:latex_inline})")
+    for ax in axs[-1, :]:
+        ax.set_xlabel(f"helioprojective $x$ ({unit_position:latex_inline})")
+
+    def _title(index_time: int) -> str:
+        result = f"{label_line} fitted with two Gaussians"
+        if not timestamp:
+            return result
+        t = time[{axis_time: index_time}].ndarray
+        return f"{result}, {t.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+
+    text = fig.suptitle(_title(0))
+
+    # Held still, so that the panels do not shift about from one frame to
+    # the next as the numbers on the scales change width.
+    fig.canvas.draw()
+    fig.set_layout_engine("none")
+
+    def func(index_time: int) -> list[matplotlib.artist.Artist]:
+
+        for image, value in images:
+            image.set_data(value[index_time])
+
+        text.set_text(_title(index_time))
+
+        return [*[image for image, _ in images], text]
+
+    if path.suffix == ".gif":
+        writer = matplotlib.animation.PillowWriter(fps=fps)
+    else:
+        writer = matplotlib.animation.FFMpegWriter(
+            fps=fps,
+            codec="h264",
+            extra_args=["-pix_fmt", "yuv420p", "-crf", "18"],
+        )
+
+    ani = matplotlib.animation.FuncAnimation(fig=fig, func=func, frames=num_time)
+    ani.save(filename=path, writer=writer, dpi=dpi)
+
+    plt.close(fig)
+
+    return path
+
+
 def _centers(
     a: "esis.data.Level_4",
     index: dict[str, slice],
@@ -2410,6 +2840,10 @@ def level_4_event_motion(
     gamma: float = 0.5,
     velocity_limit: u.Quantity = 40 * u.km / u.s,
     speed_limit: None | u.Quantity = 300 * u.km / u.s,
+    second: bool = False,
+    width_min: u.Quantity = width_thermal_o_v,
+    width_max: u.Quantity = 150 * u.km / u.s,
+    num_passes: int = 10,
     animated: bool = False,
     cmap: str = "gray",
     cmap_velocity: str = "RdBu_r",
@@ -2487,6 +2921,29 @@ def level_4_event_motion(
         excursions leaves the quiet stretches, which are the measurement,
         flat against the bottom. They are drawn and clipped instead. If
         :obj:`None`, the scale is taken from the data.
+    second
+        Whether to use the Doppler shift of the second of two Gaussians
+        fitted to each profile of `label_line`, see
+        :func:`level_4_event_gaussians`, rather than the median of the
+        profile, in the Doppler panel and in the total speed.
+
+        The median of a profile with a fast component in one wing moves
+        only a fraction of the way toward it, by however much of the line
+        the component carries, so it says that something is moving but not
+        how fast. The second Gaussian is the moving plasma by itself.
+
+        The places followed are the same either way, the ones where the
+        median is most shifted, so that they are the places
+        :func:`level_4_event_history` follows too. Searching the second
+        Gaussian for its largest shift instead finds the ragged edges of
+        the jets, where the fits have the least light to work with.
+    width_min
+        The narrowest a fitted Gaussian may be, if `second`.
+    width_max
+        The broadest a fitted Gaussian may be, if `second`.
+    num_passes
+        The most passes to make fitting each pair again from the pairs of
+        its neighbors, if `second`, see :func:`level_4_event_gaussians`.
     animated
         Whether to save an animation instead of a still.
     cmap
@@ -2564,6 +3021,33 @@ def level_4_event_motion(
         for label in a.label_line
     }
 
+    if second:
+        # The same places, but the Doppler shift of the second Gaussian at
+        # each of them in place of the median of the line there.
+        _, second_search, _ = _gaussians(
+            a=a,
+            label_line=label_line,
+            center=center_search,
+            radius=radius_search,
+            width_min=width_min,
+            width_max=width_max,
+            num_passes=num_passes,
+        )
+        index_search, _ = _crop_esis(a, center_search, radius_search)
+        x_search, y_search = _centers(a, index_search)
+        for name in ("blue", "red"):
+            i_x = np.argmin(
+                np.abs(x_search.value[:, np.newaxis] - tracked[label_line][f"x_{name}"]),
+                axis=0,
+            )
+            i_y = np.argmin(
+                np.abs(y_search.value[:, np.newaxis] - tracked[label_line][f"y_{name}"]),
+                axis=0,
+            )
+            tracked[label_line][f"v_{name}"] = second_search[
+                np.arange(num_time), i_y, i_x, 1
+            ]
+
     seconds = (time - time[0]).to_value(u.s)
 
     # An arcsecond is a distance only once the Sun's distance is known, and
@@ -2580,14 +3064,34 @@ def level_4_event_motion(
         .transpose(axes=axes_image)
         .ndarray.value
     )[:num_time]
-    image_velocity = (
-        na.pdf.median(x=a.velocity, f=radiance, axis=axis_wavelength)
-        .transpose(axes=axes_image)
-        .ndarray.to_value(velocity_limit.unit)
-    )[:num_time]
+    if second:
+        _, second_image, _ = _gaussians(
+            a=a,
+            label_line=label_line,
+            center=center_image,
+            radius=radius_image,
+            width_min=width_min,
+            width_max=width_max,
+            num_passes=num_passes,
+            unit_velocity=velocity_limit.unit,
+        )
+        image_velocity = second_image[:num_time, ..., 1]
+    else:
+        image_velocity = (
+            na.pdf.median(x=a.velocity, f=radiance, axis=axis_wavelength)
+            .transpose(axes=axes_image)
+            .ndarray.to_value(velocity_limit.unit)
+        )[:num_time]
+
+    # What the Doppler shift in the total is of, where it is not the median
+    # of the line that also chose the places.
+    label_total = "total, with the second component" if second else "total"
 
     if path is None:
-        path = default_path / f"level-4-event-motion{suffix}"
+        stem = "level-4-event-motion"
+        if second:
+            stem = f"{stem}-second"
+        path = default_path / f"{stem}{suffix}"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, axs = plt.subplots(
@@ -2660,7 +3164,7 @@ def level_4_event_motion(
                     color="black",
                     linestyle="dashed",
                     linewidth=1,
-                    label="total",
+                    label=label_total,
                 ),
             ],
             loc="upper center",
@@ -2715,13 +3219,16 @@ def level_4_event_motion(
         vmax=+velocity_limit.to_value(velocity_limit.unit),
         aspect="equal",
     )
+    label_velocity = f"LOS velocity ({velocity_limit.unit:latex_inline})"
+    if second:
+        label_velocity = f"second component {label_velocity}"
     fig.colorbar(
         image,
         ax=axs[1, 1],
         location="bottom",
         fraction=0.06,
         pad=0.02,
-        label=f"LOS velocity ({velocity_limit.unit:latex_inline})",
+        label=label_velocity,
     )
 
     unit_position = na.unit(a.inputs.position.x)

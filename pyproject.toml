@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib",
     "astropy~=7.2",
     "joblib",
+    "scipy",
     "ndfilters==1.0.0",
     "colorsynth==1.0.0",
     "regridding==3.2.1",
