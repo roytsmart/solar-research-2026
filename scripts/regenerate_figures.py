@@ -68,6 +68,8 @@ from spd2026.figures._level_4 import (  # noqa: E402
     position_jet_southwest,
     position_event_c,
     radius_event_c,
+    position_event_d,
+    radius_event_d,
 )
 
 # The figures of the other events are given names of their own, since the
@@ -302,6 +304,74 @@ figures = {
                 "path": _path / "level-4-event-gaussians-c.mp4",
             },
             ["level-4-event-gaussians-c.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center_box": position_event_d,
+                "radius_box": radius_event_d,
+                "path": _path / "level-4-o-v-box-d.mp4",
+            },
+            ["level-4-o-v-box-d.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center": position_event_d,
+                "radius": radius_event_d,
+                "center_box": None,
+                "path": _path / "level-4-o-v-event-d.mp4",
+            },
+            ["level-4-o-v-event-d.mp4"],
+        ),
+        (
+            "level_4_event",
+            {
+                "center": position_event_d,
+                "radius": radius_event_d,
+                "percentile": _percentile_e,
+                "gamma": 0.5,
+                "interpolate_aia": True,
+                "context_top": True,
+                "path": _path / "level-4-event-d.mp4",
+            },
+            ["level-4-event-d.mp4"],
+        ),
+        (
+            "level_4_event_history",
+            {
+                "animated": True,
+                "profiles": True,
+                "percentile": _percentile_e,
+                "center": position_event_d,
+                "radius_image": radius_event_d,
+                "offset_image": 0 * u.arcsec,
+                # As event c, the brightest wings within 5 arcseconds, which
+                # here are a little apart.
+                "wings": True,
+                "radius": 5 * u.arcsec,
+                "path": _path / "level-4-event-history-profiles-d.mp4",
+            },
+            ["level-4-event-history-profiles-d.mp4"],
+        ),
+        (
+            "level_4_event_gaussians",
+            {
+                "center": position_event_d,
+                "radius": radius_event_d,
+                "path": _path / "level-4-event-gaussians-d.mp4",
+            },
+            ["level-4-event-gaussians-d.mp4"],
+        ),
+        (
+            "level_4_event_contours",
+            {
+                "center": position_event_d,
+                "radius": radius_event_d,
+                "wavelength_aia": 171 * u.AA,
+                "path": _path / "level-4-event-contours-171-d.mp4",
+            },
+            ["level-4-event-contours-171-d.mp4"],
         ),
         ("level_4_event_history", {}, ["level-4-event-history.svg"]),
         ("level_4_event_history", {"animated": True}, ["level-4-event-history.mp4"]),

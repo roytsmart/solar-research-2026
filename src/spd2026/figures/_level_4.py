@@ -159,6 +159,30 @@ still enough to hold the whole of the X its two jets draw in a difference
 of two channels, which reaches ten arcseconds from its middle.
 """
 
+position_event_d = na.Cartesian2dVectorArray(
+    x=158.7 * u.arcsec,
+    y=-117.9 * u.arcsec,
+)
+"""
+Where event d of Parker et al. (2022) is: the middle of the three by three
+grid of places whose inverted profiles that paper plots, between the two
+its caption gives, at 157.5 and -119.1 and at 159.9 and -117.9 arcseconds.
+An X-shaped explosive event like event c, but with its blue and red jets a
+little over an arcsecond apart and at different times: the blue, near -130
+km/s, brightest at 18:08:06, and the red, near 50 km/s, at 18:08:56.
+
+In the Level-4 product the event is about an arcsecond west and one and a
+half south of here, as event c is about an arcsecond west and south of
+where that paper puts it: the blue wing is brightest at 157.2 and -120.7
+arcseconds at 18:08:06, and the red wing at 158.0 and -120.0 at 18:08:46.
+"""
+
+radius_event_d = radius_event_c
+"""
+The half width of the region the close-ups of event d show, that of event
+c, which is the same size.
+"""
+
 
 def _open(path_data: None | pathlib.Path) -> "esis.data.Level_4":
     """Read the Level-4 product, preferring a local copy to the share."""
