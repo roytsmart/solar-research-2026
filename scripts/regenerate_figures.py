@@ -35,7 +35,10 @@ _esis_cache_default = pathlib.Path.home() / ".esis/cache"
 
 class _Memory(joblib.Memory):
     def __init__(self, location=None, *args, **kwargs):
-        if location is not None and pathlib.Path(location) == _esis_cache_default:
+        # Only a path can be the `esis` cache; `sdo` hands over a `Memory` it
+        # already has, which is left as it is.
+        path = isinstance(location, (str, os.PathLike))
+        if path and pathlib.Path(location) == _esis_cache_default:
             location = os.environ.get("ESIS_CACHE_DIR", location)
         super().__init__(location, *args, **kwargs)
 
@@ -60,6 +63,11 @@ import spd2026  # noqa: E402
 from spd2026.figures._level_4 import (  # noqa: E402
     center_event_default,
     position_event_south,
+    position_event_southwest,
+    position_kernel_southwest,
+    position_jet_southwest,
+    position_event_c,
+    radius_event_c,
 )
 
 # The figures of the other events are given names of their own, since the
@@ -170,6 +178,121 @@ figures = {
                 "path": _path / "level-4-event-gaussians-south.mp4",
             },
             ["level-4-event-gaussians-south.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center_box": position_event_southwest,
+                "path": _path / "level-4-o-v-box-southwest.mp4",
+            },
+            ["level-4-o-v-box-southwest.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center": position_event_southwest,
+                "center_box": None,
+                "path": _path / "level-4-o-v-event-southwest.mp4",
+            },
+            ["level-4-o-v-event-southwest.mp4"],
+        ),
+        (
+            "level_4_event",
+            {
+                "center": position_event_southwest,
+                # As event E, since the kernel is as much brighter than the
+                # field and a linear scale to the 99.5th percentile leaves
+                # it white throughout.
+                "percentile": _percentile_e,
+                "gamma": 0.5,
+                "velocity_limit": 40 * u.km / u.s,
+                "interpolate_aia": True,
+                "context_top": True,
+                "path": _path / "level-4-event-southwest.mp4",
+            },
+            ["level-4-event-southwest.mp4"],
+        ),
+        (
+            "level_4_event_history",
+            {
+                "animated": True,
+                "profiles": True,
+                "percentile": _percentile_e,
+                "center": position_event_southwest,
+                "offset_image": 0 * u.arcsec,
+                # The jet and the kernel held still, rather than followed.
+                "places": (position_jet_southwest, position_kernel_southwest),
+                "path": _path / "level-4-event-history-profiles-southwest.mp4",
+            },
+            ["level-4-event-history-profiles-southwest.mp4"],
+        ),
+        (
+            "level_4_event_gaussians",
+            {
+                "center": position_event_southwest,
+                "path": _path / "level-4-event-gaussians-southwest.mp4",
+            },
+            ["level-4-event-gaussians-southwest.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center_box": position_event_c,
+                "radius_box": radius_event_c,
+                "path": _path / "level-4-o-v-box-c.mp4",
+            },
+            ["level-4-o-v-box-c.mp4"],
+        ),
+        (
+            "level_4",
+            {
+                "center": position_event_c,
+                "radius": radius_event_c,
+                "center_box": None,
+                "path": _path / "level-4-o-v-event-c.mp4",
+            },
+            ["level-4-o-v-event-c.mp4"],
+        ),
+        (
+            "level_4_event",
+            {
+                "center": position_event_c,
+                "radius": radius_event_c,
+                "percentile": _percentile_e,
+                "gamma": 0.5,
+                "interpolate_aia": True,
+                "context_top": True,
+                "path": _path / "level-4-event-c.mp4",
+            },
+            ["level-4-event-c.mp4"],
+        ),
+        (
+            "level_4_event_history",
+            {
+                "animated": True,
+                "profiles": True,
+                "percentile": _percentile_e,
+                "center": position_event_c,
+                "radius_image": radius_event_c,
+                "offset_image": 0 * u.arcsec,
+                # The brightest wings rather than the largest shifts, which
+                # wander about an event only a few cells across, and only
+                # near the event, since before and after it the brightest
+                # wing is wherever the noise happens to be highest.
+                "wings": True,
+                "radius": 5 * u.arcsec,
+                "path": _path / "level-4-event-history-profiles-c.mp4",
+            },
+            ["level-4-event-history-profiles-c.mp4"],
+        ),
+        (
+            "level_4_event_gaussians",
+            {
+                "center": position_event_c,
+                "radius": radius_event_c,
+                "path": _path / "level-4-event-gaussians-c.mp4",
+            },
+            ["level-4-event-gaussians-c.mp4"],
         ),
         ("level_4_event_history", {}, ["level-4-event-history.svg"]),
         ("level_4_event_history", {"animated": True}, ["level-4-event-history.mp4"]),

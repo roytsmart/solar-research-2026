@@ -18,3 +18,9 @@ figures/*.gif
 # The virtual environment holding the pinned dependencies
 .venv/
 .venv-level-4/
+
+# The movie of Figure 7 of Wyper et al. (2018), which the journal holds the
+# copyright to and only serves through links which expire after a week. The
+# slide falls back to the still of the same figure, linked from the journal,
+# wherever the movie has not been downloaded.
+docs/media/wyper-2018-figure-7.mp4

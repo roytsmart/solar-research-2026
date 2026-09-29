@@ -103,6 +103,62 @@ position_event_south = na.Cartesian2dVectorArray(
     y=-299 * u.arcsec,
 )
 
+position_event_southwest = na.Cartesian2dVectorArray(
+    x=150 * u.arcsec,
+    y=-200 * u.arcsec,
+)
+"""
+Where the third event is, southwest of disk center, found by eye for the
+group-meeting version of the talk: a compact kernel at about 143 and -188
+arcseconds, bright all flight long and red-shifted until about 18:09:30,
+and a blue-shifted jet some twenty arcseconds long running southeast from
+it, strongest at about 18:07:36 at 156 and -203 arcseconds and gone by
+about 18:09. This is between the two, and the close-up figures are
+centered on it with the half width of event E, which holds them both.
+"""
+
+position_kernel_southwest = na.Cartesian2dVectorArray(
+    x=143 * u.arcsec,
+    y=-188 * u.arcsec,
+)
+"""
+The kernel of the third event, the place its red wing is brightest through
+most of the flight.
+"""
+
+position_jet_southwest = na.Cartesian2dVectorArray(
+    x=156 * u.arcsec,
+    y=-203 * u.arcsec,
+)
+"""
+The jet of the third event where its blue wing is brightest, at about
+18:07:36.
+"""
+
+position_event_c = na.Cartesian2dVectorArray(
+    x=261.5 * u.arcsec,
+    y=-52.5 * u.arcsec,
+)
+"""
+Where event c of Parker et al. (2022) is: the middle of the three by three
+grid of places whose inverted profiles that paper plots, an X-shaped
+explosive event about three arcseconds across with a persistent blue jet and
+a bursty red one, which lasts a little over four minutes.
+
+The brightest cell of the Level-4 product at 18:08:06, when the event is
+brightest, is a cell from here, at 260.6 and -53.5 arcseconds.
+"""
+
+radius_event_c = 15 * u.arcsec
+"""
+The half width of the region the close-ups of event c show.
+
+About half that of event E, which is ten times the size: at the same half
+width event c would be a few cells in the middle of an empty panel. This is
+still enough to hold the whole of the X its two jets draw in a difference
+of two channels, which reaches ten arcseconds from its middle.
+"""
+
 
 def _open(path_data: None | pathlib.Path) -> "esis.data.Level_4":
     """Read the Level-4 product, preferring a local copy to the share."""
@@ -2511,6 +2567,20 @@ def _centers(
     return tuple(result)
 
 
+def _label_position(position: na.Cartesian2dVectorArray) -> str:
+    """
+    A place on the sky as a legend names it, in whole arcseconds.
+
+    Parameters
+    ----------
+    position
+        The place to name.
+    """
+    x = position.x.to_value(u.arcsec)
+    y = position.y.to_value(u.arcsec)
+    return f"{x:.0f}\u2033, {y:.0f}\u2033".replace("-", "\u2212")
+
+
 def _track(
     a: "esis.data.Level_4",
     label_line: str,
@@ -2519,6 +2589,7 @@ def _track(
     percentile_bright: float,
     wings: bool = False,
     speed_wing: u.Quantity = 60 * u.km / u.s,
+    fixed: None | tuple[na.Cartesian2dVectorArray, na.Cartesian2dVectorArray] = None,
 ) -> dict[str, np.ndarray]:
     r"""
     The fastest plasma of a line in every frame, both ways, and where it is.
@@ -2563,6 +2634,11 @@ def _track(
         Where each wing starts, if `wings`: far enough from rest to be out
         of the core of the line, which is twenty to thirty kilometers per
         second wide.
+    fixed
+        Two places to hold still instead of searching for any, reported as
+        the blue place and the red place, in that order. Each is the cell of
+        the region it falls in, and must be inside the region. Overrides
+        `wings`.
     """
     index_line = list(a.label_line).index(label_line)
     index, _ = _crop_esis(a, center, radius)
@@ -2598,8 +2674,18 @@ def _track(
     keys = ("x", "y", "v", "i")
     result = {f"{k}_{n}": [] for k in keys for n in ("blue", "red")}
 
+    if fixed is not None:
+        # The cell each place falls in, the same in every frame.
+        places_fixed = []
+        for name, position in zip(("blue", "red"), fixed):
+            i_x = int(np.argmin(np.abs(x - position.x)))
+            i_y = int(np.argmin(np.abs(y - position.y)))
+            places_fixed.append((name, (i_y, i_x)))
+
     for k in range(velocity.shape[0]):
-        if wings:
+        if fixed is not None:
+            places = places_fixed
+        elif wings:
             places = [
                 (name, np.unravel_index(np.nanargmax(w[k]), w[k].shape))
                 for name, w in wing.items()
@@ -2633,6 +2719,7 @@ def level_4_event_history(
     offset_image: u.Quantity = offset_event_default,
     percentile_bright: float = 75,
     wings: bool = False,
+    places: None | tuple[na.Cartesian2dVectorArray, na.Cartesian2dVectorArray] = None,
     percentile: float = 99.5,
     gamma: float = 0.5,
     velocity_limit: u.Quantity = 40 * u.km / u.s,
@@ -2726,6 +2813,15 @@ def level_4_event_history(
         The better choice for an event only a few cells across, whose largest
         shift wanders about it from frame to frame, since the median of
         every profile there is small and is pulled both ways at once.
+    places
+        Two places to hold still rather than follow, the one marked with the
+        circle and the one marked with the square, in that order, each
+        named in the legends by where it is. Overrides `wings`.
+
+        For an event whose parts are known and do not move, such as a
+        kernel with a jet beside it: the profiles are then always of the
+        same two pieces of the event, and a change in one is a change in
+        the Sun rather than in which cell was chosen.
     percentile
         The percentile of the intensity placed at the top of the brightness
         scale of the panel on the right.
@@ -2853,6 +2949,7 @@ def level_4_event_history(
                 radius=radius_search,
                 percentile_bright=percentile_bright,
                 wings=wings,
+                fixed=places,
             ).items()
         }
         for label in a.label_line
@@ -2884,7 +2981,9 @@ def level_4_event_history(
             stem = f"{stem}-images"
         if profiles:
             stem = f"{stem}-profiles"
-        if wings:
+        if places is not None:
+            stem = f"{stem}-fixed"
+        elif wings:
             stem = f"{stem}-wings"
         path = default_path / f"{stem}{suffix}"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2928,7 +3027,15 @@ def level_4_event_history(
     else:
         reference = [1] * a.num_line
 
-    if wings:
+    if places is not None:
+        extremes = tuple(
+            (name, linestyle, _label_position(position))
+            for (name, linestyle), position in zip(
+                (("blue", "solid"), ("red", "dashed")),
+                places,
+            )
+        )
+    elif wings:
         extremes = (
             ("blue", "solid", "brightest blue wing"),
             ("red", "dashed", "brightest red wing"),
@@ -3026,7 +3133,7 @@ def level_4_event_history(
         # other lines' brightest wings are, for the fainter of them, wherever
         # their noise is highest, and a scale wide enough for the medians
         # there leaves the line drawn flat.
-        labels = [label_line] if wings else a.label_line
+        labels = [label_line] if wings or places is not None else a.label_line
         scaled = np.concatenate(
             [
                 tracked[label][f"v_{name}"][:-num_frames_unscaled]
@@ -3038,7 +3145,10 @@ def level_4_event_history(
         axs[1, 0].set_ylim(scaled.min() - margin, scaled.max() + margin)
 
     axs[1, 0].axhline(0, color="gray", linewidth=0.8, zorder=0)
-    label_velocity = "median LOS velocity" if wings else "extreme LOS velocity"
+    if wings or places is not None:
+        label_velocity = "median LOS velocity"
+    else:
+        label_velocity = "extreme LOS velocity"
     axs[1, 0].set_ylabel(f"{label_velocity} ({velocity_limit.unit:latex_inline})")
     axs[1, 0].set_xlabel(f"seconds after {time[0].isot[11:19]} UTC")
 
@@ -3194,7 +3304,11 @@ def level_4_event_history(
                 color=color_extreme[name],
                 linestyle=linestyle,
                 linewidth=1.8,
-                label=f"at the {description}",
+                label=(
+                    f"at {description}"
+                    if places is not None
+                    else f"at the {description}"
+                ),
             )
             ax.axvline(0, color="gray", linewidth=0.8, zorder=0)
             # Room above the peak for the legend, which would otherwise sit
