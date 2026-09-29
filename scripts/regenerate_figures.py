@@ -180,6 +180,15 @@ figures = {
             ["level-4-event-gaussians-south.mp4"],
         ),
         (
+            "level_4_event_contours",
+            {
+                "center": position_event_south,
+                "wavelength_aia": 171 * u.AA,
+                "path": _path / "level-4-event-contours-171-south.mp4",
+            },
+            ["level-4-event-contours-171-south.mp4"],
+        ),
+        (
             "level_4",
             {
                 "center_box": position_event_southwest,
